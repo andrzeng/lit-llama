@@ -48,7 +48,7 @@ llama_configs = {
 
 def validate(inp, in_features):
     # Mimic TransformerEngine's validation
-    assert inp.shape[-1] == in_features, "GEMM not possible"
+    assert inp.shape[-1] == in_features, f"GEMM not possible, {inp.shape[-1]} != {in_features}"
     inputmat = inp.view((-1, in_features))
     a, b = inputmat.shape
     if not (a % 8 or b % 16):
@@ -61,13 +61,13 @@ def validate(inp, in_features):
 class TELinear(nn.Linear):
     # Mimic TransformerEngine's Linear
     def forward(self, input):
-        numel = self.weight.numel()
-        validate(input, numel)
-        validate(self.weight, numel)
+        in_features = self.weight.shape[-1]
+        validate(input, in_features)
+        validate(self.weight, in_features)
         return super().forward(input)
 
 
-class LLaMA(nn.Module):
+class PaddedLLaMA(nn.Module):
     def __init__(self, config: LLaMAConfig) -> None:
         super().__init__()
         assert config.padded_vocab_size is not None

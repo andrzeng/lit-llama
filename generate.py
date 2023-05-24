@@ -11,13 +11,14 @@ import torch
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from lit_llama import LLaMA, Tokenizer
+from lit_llama import Tokenizer
 from lit_llama.utils import EmptyInitOnDevice, lazy_load, llama_model_lookup
+from lit_llama.model_padding import PaddedLLaMA
 
 
 @torch.no_grad()
 def generate(
-    model: LLaMA,
+    model: PaddedLLaMA,
     idx: torch.Tensor,
     max_new_tokens: int,
     *,
@@ -129,7 +130,7 @@ def main(
         with EmptyInitOnDevice(
                 device=fabric.device, dtype=dtype, quantization_mode=quantize
         ):
-            model = LLaMA.from_name(name)
+            model = PaddedLLaMA.from_name(name)
 
         model.load_state_dict(checkpoint)
     print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)

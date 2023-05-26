@@ -180,10 +180,8 @@ class PackedDatasetIterator:
 
     def _load_n_chunks(self):
         self._close_mmaps()
-        self._mmaps = []
-        self._buffers = []
 
-        if self._n_chunks > len(self._filenames[self._file_idx:]):
+        if self._n_chunks > len(self._filenames[self._file_idx :]):
             if not self._wrap:
                 raise StopIteration
             else:
@@ -215,7 +213,6 @@ class PackedDatasetIterator:
     def __del__(self):
         self._close_mmaps()
         del self._mmaps
-        del self._buffers
 
     def __iter__(self):
         return self
@@ -258,3 +255,4 @@ class CombinedDatasetIterator:
     def __next__(self):
         dataset, = self._rng.choices(self._datasets, weights=self._weights, k=1)
         return next(dataset)
+

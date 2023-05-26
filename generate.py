@@ -17,14 +17,15 @@ from lit_llama.utils import EmptyInitOnDevice, lazy_load, llama_model_lookup
 
 @torch.no_grad()
 def generate(
-    model: LLaMA,
+    model: torch.nn.Module,
     idx: torch.Tensor,
     max_new_tokens: int,
-    *,
-    max_seq_length: Optional[int] = None,
+    max_seq_length: int,
     temperature: float = 1.0,
     top_k: Optional[int] = None,
     eos_id: Optional[int] = None,
+    internal_state_tokens=None,
+    debug_spam=False
 ) -> torch.Tensor:
     """Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
 
@@ -42,58 +43,72 @@ def generate(
     # create an empty tensor of the expected final shape and fill in the current tokens
     T = idx.size(0)
     T_new = T + max_new_tokens
-    if max_seq_length is None:
-        max_seq_length = min(T_new, model.config.block_size)
-
-    device, dtype = idx.device, idx.dtype
-    # create an empty tensor of the expected final shape and fill in the current tokens
-    empty = torch.empty(T_new, dtype=dtype, device=device)
+    empty = torch.empty(T_new, dtype=idx.dtype, device=idx.device)
     empty[:T] = idx
     idx = empty
-    input_pos = torch.arange(0, T, device=device)
 
-    if idx.device.type == "xla":
-        import torch_xla.core.xla_model as xm
 
-        xm.mark_step()
 
+    output_logits = torch.zeros(size=(1,32000,1), requires_grad=True)
+   
+    initial = True
     # generate max_new_tokens tokens
-    for _ in range(max_new_tokens):
-        x = idx.index_select(0, input_pos).view(1, -1)
+    for t in range(T, T_new):
+        # ignore the not-filled-yet tokens
+        idx_cond = idx[:t]
+        # if the sequence context is growing too long we must crop it at max_seq_length
+        idx_cond = idx_cond if t <= max_seq_length else idx_cond[-max_seq_length:]
 
         # forward
-        logits = model(x, max_seq_length, input_pos)
-        logits = logits[0, -1] / temperature
+        if(debug_spam):
+            print('idx_cond.view(1, -1).shape: ', idx_cond.view(1, -1).shape)
+
+
+        if(initial is True):
+            logits, prelogits = model(idx_cond.view(1, -1), internal_state_tokens)
+            initial = False
+        else:
+            logits, prelogits = model(idx_cond.view(1, -1))
+
+        logits = logits[0, -1]
+        prelogits = prelogits[0, -1]
+        output_logits = torch.cat((output_logits.to(idx.device), logits.clone().reshape(1,32000,1).to(idx.device)), dim=2)
+        
+        logits = logits / temperature
+        
+        if(debug_spam):
+            print('prelogits.shape: ', prelogits.shape)
 
         # optionally crop the logits to only the top k options
         if top_k is not None:
             v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-            logits = torch.where(logits < v[[-1]], -float("Inf"), logits)
+            logits[logits < v[[-1]]] = -float("Inf")
+
 
         probs = torch.nn.functional.softmax(logits, dim=-1)
-        idx_next = torch.multinomial(probs, num_samples=1).to(dtype=dtype)
-
-        # advance
-        input_pos = input_pos[-1:] + 1
-
-        if idx.device.type == "xla":
-            xm.mark_step()
-
+        
+        if(debug_spam):
+            print('probs.shape: ', probs.shape)
+        idx_next = torch.multinomial(probs, num_samples=1)
+        
         # concatenate the new generation
-        idx = idx.index_copy(0, input_pos, idx_next)
+        idx[t] = idx_next
 
         # if <eos> token is triggered, return the output (stop generation)
         if idx_next == eos_id:
-            return idx[:input_pos]  # include the EOS token
+            return idx[:t + 1]  # include the EOS token
 
-    return idx
+    # Maybe should be output_logits[:,:,1:] instead to get rid of the zeros initially
+    if(debug_spam):
+        print('output_logits[:,:,:-1].shape: ', output_logits[:,:,:-1].shape)
+    return idx, output_logits[:,:,:-1]
 
 
 def main(
     prompt: str = "Hello, my name is",
     *,
     num_samples: int = 1,
-    max_new_tokens: int = 50,
+    max_new_tokens: int = 200,
     top_k: int = 200,
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
@@ -115,11 +130,15 @@ def main(
             ``"llm.int8"``: LLM.int8() mode,
             ``"gptq.int4"``: GPTQ 4-bit mode.
     """
-    assert checkpoint_path.is_file(), checkpoint_path
+   # assert checkpoint_path.is_file(), checkpoint_path
     assert tokenizer_path.is_file(), tokenizer_path
 
     fabric = L.Fabric(devices=1)
     dtype = torch.bfloat16 if fabric.device.type == "cuda" and torch.cuda.is_bf16_supported() else torch.float32
+    
+
+    # Never quantize
+    quantize=None
 
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
@@ -139,15 +158,29 @@ def main(
 
     tokenizer = Tokenizer(tokenizer_path)
     encoded = tokenizer.encode(prompt, bos=True, eos=False, device=fabric.device)
+    print('encoded.shape: ', encoded.shape, 'encoded: ', encoded)
+
+
+    torch.save(model.transformer.wte.state_dict(), "embedding.pt")
+    print(model.transformer.wte)
+    
+   # sys.exit()
+
     prompt_length = encoded.size(0)
 
     L.seed_everything(1234)
-    for i in range(num_samples):
+    for i in range(num_samples): #num_samples = 1
         t0 = time.perf_counter()
-        y = generate(model, encoded, max_new_tokens, temperature=temperature, top_k=top_k)
+        y = generate(
+            model,
+            encoded,
+            max_new_tokens,
+            model.config.block_size,  # type: ignore[union-attr,arg-type]
+            temperature=temperature,
+            top_k=top_k,
+        )
         t = time.perf_counter() - t0
 
-        model.reset_cache()
         print(tokenizer.decode(y))
         tokens_generated = y.size(0) - prompt_length
         print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_generated / t:.02f} tokens/sec", file=sys.stderr)

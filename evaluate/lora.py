@@ -73,7 +73,6 @@ def main(
             `finetune_lora.py`.
         checkpoint_path: The checkpoint path to load.
         tokenizer_path: The tokenizer path to load.
-        dtype: The tensor dtype for choosing the floating-point precision 
         quantize: Whether to quantize the model and using which method:
             ``"llm.int8"``: LLM.int8() mode,
             ``"gptq.int4"``: GPTQ 4-bit mode.
@@ -95,18 +94,19 @@ def main(
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
 
-    with lazy_load(pretrained_path) as pretrained_checkpoint, lazy_load(lora_path) as lora_checkpoint:
-        name = llama_model_lookup(pretrained_checkpoint)
+    pretrained_checkpoint = lazy_load(checkpoint_path)
+    adapter_checkpoint = lazy_load(lora_path)
+    name = llama_model_lookup(pretrained_checkpoint)
 
-        with EmptyInitOnDevice(
-                device=fabric.device, dtype=dtype, quantization_mode=quantize
-        ), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
-            model = LLaMA.from_name(name)
+    with EmptyInitOnDevice(
+        device=fabric.device, dtype=dtype, quantization_mode=quantize
+    ), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
+        model = LLaMA.from_name(name)
 
-            # 1. Load the pretrained weights
-            model.load_state_dict(pretrained_checkpoint, strict=False)
-            # 2. Load the fine-tuned lora weights
-            model.load_state_dict(lora_checkpoint, strict=False)
+    # 1. Load the pretrained weights
+    model.load_state_dict(pretrained_checkpoint, strict=False)
+    # 2. Load the fine-tuned adapter weights
+    model.load_state_dict(adapter_checkpoint, strict=False)
 
     print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
 

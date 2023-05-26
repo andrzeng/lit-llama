@@ -98,6 +98,7 @@ def main(
     output = generate(
         model,
         idx=encoded,
+        max_seq_length=max_new_tokens,
         max_new_tokens=max_new_tokens,
         temperature=temperature,
         top_k=top_k,

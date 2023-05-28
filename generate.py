@@ -65,7 +65,7 @@ def generate(
 
 
         if(initial is True):
-            logits, prelogits = model(idx_cond.view(1, -1), internal_state_tokens)
+            logits, prelogits = model(idx_cond.view(1, -1), internal_state_tokens.float())
             initial = False
         else:
             logits, prelogits = model(idx_cond.view(1, -1))

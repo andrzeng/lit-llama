@@ -124,8 +124,11 @@ class CausalSelfAttention(nn.Module):
         self.rope_cache: Optional[torch.Tensor] = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
+        x = x.float()
 
+        B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
+        
+        
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
 
@@ -244,3 +247,4 @@ def apply_rope(x: torch.Tensor, rope_cache: torch.Tensor) -> torch.Tensor:
 
     x_out2 = x_out2.flatten(3)
     return x_out2.transpose(1, 2).type_as(x)
+

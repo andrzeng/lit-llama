@@ -55,7 +55,7 @@ if __name__ == '__main__':
     # Device init (copied from generate.py)
     fabric = L.Fabric(devices=1)
     dtype = torch.bfloat16 if fabric.device.type == "cuda" and torch.cuda.is_bf16_supported() else torch.float32
-    #dtype = torch.float16
+   
 
     print('Loading models...')
 
@@ -73,7 +73,6 @@ if __name__ == '__main__':
     # Load the LLaMa model and the IST generator (also a LLaMA model)
     LLamaModel = load_LLaMA(checkpoint_path)
     print('Finished loading the first model')
-    #IST_generator = load_LLaMA(checkpoint_path)    
     print('Finished loading models')
 
 
@@ -81,14 +80,14 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(IST_generator.parameters(), lr=1e-4)
     loss_fn = torch.nn.CrossEntropyLoss()
     tokenizer = Tokenizer(tokenizer_path)
-
     losses = []
 
     alpaca_dataset = pd.read_json("alpaca_data_cleaned.json")
+
     for epoch in range(20):
         print(f'In epoch {epoch}')
 
-        for index, row in alpaca_dataset.iterrows():
+        for index, row in alpaca_dataset[:100].iterrows(): # for now, we'll only look at the first 100 items
             instruction = row['instruction']
             question = row['input']
             answer = row['output']
@@ -98,25 +97,14 @@ if __name__ == '__main__':
             
             encoded_instruction = tokenizer.encode(instruction, bos=True, eos=False, device=fabric.device).reshape((1,-1))
             target = tokenizer.encode(answer, bos=True, eos=False, device=fabric.device)
-            print(target.shape, target.size(0))
-
             _, prelogits = LLamaModel(encoded_instruction) # prelogits is of the shape (B, L, 4096)
             ist_generator_out = IST_generator(prelogits) # (B, L, 4096)
-            #print('encoded_preprompt.shape: ', encoded_preprompt.shape)
             internal_state_token = ist_generator_out[0, -1]
-            
-            print('IST shape: ', internal_state_token.shape)
-
             encoded_query = tokenizer.encode(question, bos=True, eos=False, device=fabric.device)
 
             # Next, send the internal token + query into LLaMA and save the output logits
-            max_new_tokens = 50
-
-            #print(internal_state_token, internal_state_token.type())
-            #internal_state_token = internal_state_token.to(fabric.device)
-            #print(internal_state_token, internal_state_token.type())
             internal_state_token = internal_state_token.bfloat16()  # the end result of an hour of debugging!
-            #print(internal_state_token, internal_state_token.type())
+            
 
             _, predicted_logits = generate.generate(model=LLamaModel,
                                                     idx=encoded_query,
@@ -126,9 +114,6 @@ if __name__ == '__main__':
 
             print('tokenizer.decode(_): ', tokenizer.decode(_))
             print('Ground truth answer: ', answer)
-
-            #print('encoded preprompt.shape: ', encoded_preprompt.shape)
-            #print('encoded_query.shape: ', encoded_query.shape)
 
             '''
             encoded_combined = tokenizer.encode(preprompt + query, bos=True,eos=False, device=fabric.device)
@@ -144,15 +129,8 @@ if __name__ == '__main__':
             print('tokenizer.decode(idx): ', tokenizer.decode(idx))'''
 
             # Compare the two resulting outputs
-            print('predicted_logits.shape: ', predicted_logits.shape)
-            #print('idx.shape: ', idx.shape)
-            #print('idx[encoded_combined.size(0):].shape: ', idx[encoded_combined.size(0):].shape)
-            
-            #print('idx.requires_grad: ', idx.requires_grad)
-            #print('predicted_logits.requires_grad: ', predicted_logits.requires_grad)
-            # idx.requires_grad=True
+           
             predicted_logits.requires_grad=True
-
             '''idx = idx[encoded_combined.size(0):]'''
             predicted_logits = predicted_logits.reshape(-1,32000)
             

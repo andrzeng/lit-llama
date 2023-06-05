@@ -13,6 +13,7 @@ from torch.nn import functional as F
 from typing_extensions import Self
 
 from lit_llama.utils import find_multiple
+import sys
 
 
 @dataclass
@@ -34,6 +35,7 @@ class LLaMAConfig:
 
 
 llama_configs = {
+    "tiny": dict(n_layer=2, n_head=2, n_embd=128),
     "7B": dict(n_layer=32, n_head=32, n_embd=4096),
     "13B": dict(n_layer=40, n_head=40, n_embd=5120),
     "30B": dict(n_layer=60, n_head=52, n_embd=6656),
@@ -65,6 +67,7 @@ class LLaMA(nn.Module):
 
     def forward(self, idx: torch.Tensor, internal_state_tokens=None) -> torch.Tensor:
         #print(f'in forward()')
+        batch_size = idx.size(0)
 
         _, t = idx.size()
         assert (
@@ -76,10 +79,32 @@ class LLaMA(nn.Module):
         
         # Here, prepend the embeddings 
 
-        #print('x.shape: ', x.shape)
-
         if(internal_state_tokens is not None):
-            x = torch.cat((internal_state_tokens.reshape(1,1,-1).to(idx.device), x.to(idx.device) ), dim=1)
+            #assert(batch_size == internal_state_tokens.shape[0]), "batch sizes of IST and idx don't match"
+            x = torch.cat((internal_state_tokens.reshape(batch_size,1,-1).to(idx.device), x.to(idx.device) ), dim=1)
+
+        for block in self.transformer.h:
+            x = block(x)
+        x = self.transformer.ln_f(x)
+
+        logits = self.lm_head(x)  # (b, t, vocab_size)
+
+        return logits, x
+    
+    def forward_embeddings(self, 
+                           embeddings: torch.Tensor,  # should be in the shape (B, N, d_embed)
+                           internal_state_tokens=None) -> torch.Tensor:
+        
+
+        # forward the LLaMA model itself
+        x = embeddings
+        
+        # Here, prepend the embeddings 
+
+        print(x.shape)
+        sys.exit()
+        if(internal_state_tokens is not None):
+            x = torch.cat((internal_state_tokens.reshape(1,1,-1).to(embeddings.device), x.to(embeddings.device) ), dim=1)
 
         for block in self.transformer.h:
             x = block(x)
@@ -101,11 +126,31 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(config)
         self.rms_2 = RMSNorm(config.n_embd)
         self.mlp = MLP(config)
-
+    
+        
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.rms_1(x))
         x = x + self.mlp(self.rms_2(x))
         return x
+    
+    def forward_last_4_hidden(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.attn(self.rms_1(x))
+        x = x + self.mlp(self.rms_2(x))
+        return torch.sum(x[:, -4:], dim=0)
+    
+    def forward_2nd_to_last_hidden(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.attn(self.rms_1(x))
+        return x[:, -1]
+    
+    def forward_sum_all_layers(self, x: torch.Tensor) -> torch.Tensor:
+        x0 = x.clone()
+        x = x + self.attn(self.rms_1(x))
+        x1 = x.clone()
+        x = x + self.mlp(self.rms_2(x))
+        summed = (x0+x1+x)[:,-1]
+        del x0, x1, x
+        return summed
+
 
 
 class CausalSelfAttention(nn.Module):
@@ -124,13 +169,11 @@ class CausalSelfAttention(nn.Module):
         self.rope_cache: Optional[torch.Tensor] = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.float()
-
+        
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
         
-        
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
+        q, k, v = self.c_attn(x).split(self.n_embd, dim=2) #generate query, key, value vectors
 
         head_size = C // self.n_head
         k = k.view(B, T, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)

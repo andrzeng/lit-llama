@@ -47,8 +47,6 @@ def generate(
     empty[:T] = idx
     idx = empty
 
-
-
     output_logits = torch.zeros(size=(1,32000,1), requires_grad=True)
    
     initial = True
@@ -65,7 +63,7 @@ def generate(
 
 
         if(initial is True):
-            logits, prelogits = model(idx_cond.view(1, -1), internal_state_tokens.float())
+            logits, prelogits = model(idx_cond.view(1, -1), internal_state_tokens)
             initial = False
         else:
             logits, prelogits = model(idx_cond.view(1, -1))
@@ -100,8 +98,8 @@ def generate(
 
     # Maybe should be output_logits[:,:,1:] instead to get rid of the zeros initially
     if(debug_spam):
-        print('output_logits[:,:,:-1].shape: ', output_logits[:,:,:-1].shape)
-    return idx, output_logits[:,:,:-1]
+        print('output_logits[:,:,:-1].shape: ', output_logits[:,:,1:].shape)
+    return idx, output_logits[:,:,1:]
 
 
 def main(

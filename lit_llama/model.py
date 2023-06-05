@@ -79,9 +79,6 @@ class LLaMA(nn.Module):
         
         # Here, prepend the embeddings 
 
-        print('x.shape: ', x.shape)
-        sys.exit()
-        
         if(internal_state_tokens is not None):
             #assert(batch_size == internal_state_tokens.shape[0]), "batch sizes of IST and idx don't match"
             x = torch.cat((internal_state_tokens.reshape(batch_size,1,-1).to(idx.device), x.to(idx.device) ), dim=1)

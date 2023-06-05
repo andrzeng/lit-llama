@@ -7,7 +7,6 @@ import warnings
 from io import BytesIO
 
 import torch
-import torch.utils._device
 from lightning.fabric.strategies import DeepSpeedStrategy, FSDPStrategy
 from torch.distributed.fsdp import FullStateDictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP

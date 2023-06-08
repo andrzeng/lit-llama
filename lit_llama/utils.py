@@ -5,12 +5,13 @@ from pathlib import Path
 import pickle
 import warnings
 from io import BytesIO
-
 import torch
 from lightning.fabric.strategies import DeepSpeedStrategy, FSDPStrategy
 from torch.distributed.fsdp import FullStateDictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import StateDictType
+
+import torch.utils._device
 
 
 llama_model_sizes = {

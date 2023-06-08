@@ -101,8 +101,7 @@ class LLaMA(nn.Module):
         
         # Here, prepend the embeddings 
 
-        print(x.shape)
-        sys.exit()
+        
         if(internal_state_tokens is not None):
             x = torch.cat((internal_state_tokens.reshape(1,1,-1).to(embeddings.device), x.to(embeddings.device) ), dim=1)
 
@@ -113,6 +112,12 @@ class LLaMA(nn.Module):
         logits = self.lm_head(x)  # (b, t, vocab_size)
 
         return logits, x
+    
+
+    def embed(self, 
+              token_idx):
+
+        return self.transformer.wte(token_idx)
 
     @classmethod
     def from_name(cls, name: str) -> Self:

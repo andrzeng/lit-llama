@@ -15,3 +15,5 @@ wandb
 original_model.py
 original_adapter.py
 embedding.pt
+
+*.pt

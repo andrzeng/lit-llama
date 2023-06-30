@@ -36,6 +36,7 @@ class LLaMAConfig:
 
 llama_configs = {
     "tiny": dict(n_layer=2, n_head=2, n_embd=128),
+    "small": dict(n_layer=16, n_head=16, n_embd=1024),
     "7B": dict(n_layer=32, n_head=32, n_embd=4096),
     "13B": dict(n_layer=40, n_head=40, n_embd=5120),
     "30B": dict(n_layer=60, n_head=52, n_embd=6656),
@@ -110,7 +111,7 @@ class LLaMA(nn.Module):
         x = self.transformer.ln_f(x)
 
         logits = self.lm_head(x)  # (b, t, vocab_size)
-
+        
         return logits, x
     
 
